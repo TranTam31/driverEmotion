@@ -1,26 +1,3 @@
-# from flask import Flask, jsonify
-# import mysql.connector
-# from flask_cors import CORS
-
-# app = Flask(__name__)
-# CORS(app, origins="http://localhost:3000")
-
-# # Lấy dữ liệu từ MySQL
-# @app.route('/api/emotions')
-# def get_emotions():
-#     conn = mysql.connector.connect(
-#         host="localhost", user="root", password="123456", database="emotion_db"
-#     )
-#     cursor = conn.cursor(dictionary=True)
-#     cursor.execute("SELECT * FROM emotion_log ORDER BY timestamp ASC")
-#     results = cursor.fetchall()
-#     cursor.close()
-#     conn.close()
-#     return jsonify(results)
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
-
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_socketio import SocketIO
