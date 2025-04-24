@@ -55,6 +55,11 @@ def handle_new_emotion(data):
     # Phát lại cho tất cả frontend đã kết nối
     socketio.emit('new_emotion', data)
 
+@socketio.on('video_frame')
+def handle_video_frame(data):
+    # Simply pass the frame to all connected clients
+    socketio.emit('video_frame', data)
+
 
 # Khởi động app
 if __name__ == '__main__':
