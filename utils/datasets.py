@@ -18,7 +18,7 @@ class DataManager(object):
         elif self.dataset_name == 'imdb':
             self.dataset_path = '../datasets/imdb_crop/imdb.mat'
         elif self.dataset_name == 'fer2013':
-            self.dataset_path = '../datasets/fer2013/fer2013.csv'
+            self.dataset_path = './datasets/fer2013/fer2013.csv'
         elif self.dataset_name == 'KDEF':
             self.dataset_path = '../datasets/KDEF/'
         else:
@@ -65,7 +65,7 @@ class DataManager(object):
             faces.append(face.astype('float32'))
         faces = np.asarray(faces)
         faces = np.expand_dims(faces, -1)
-        emotions = pd.get_dummies(data['emotion']).as_matrix()
+        emotions = pd.get_dummies(data['emotion']).to_numpy()
         return faces, emotions
 
     def _load_KDEF(self):
