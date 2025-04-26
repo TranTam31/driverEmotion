@@ -4,12 +4,12 @@ import numpy as np
 from random import shuffle
 import os
 import cv2
+from PIL import Image
 
 class DataManager(object):
     """Class for loading fer2013 emotion classification dataset or
         imdb gender classification dataset."""
     def __init__(self, dataset_name='imdb', dataset_path=None, image_size=(48, 48)):
-
         self.dataset_name = dataset_name
         self.dataset_path = dataset_path
         self.image_size = image_size
@@ -65,7 +65,8 @@ class DataManager(object):
             faces.append(face.astype('float32'))
         faces = np.asarray(faces)
         faces = np.expand_dims(faces, -1)
-        emotions = pd.get_dummies(data['emotion']).to_numpy()
+        # Đảm bảo tương thích với pandas mới
+        emotions = pd.get_dummies(data['emotion']).values
         return faces, emotions
 
     def _load_KDEF(self):
@@ -139,4 +140,3 @@ def split_data(x, y, validation_split=.2):
     train_data = (train_x, train_y)
     val_data = (val_x, val_y)
     return train_data, val_data
-
