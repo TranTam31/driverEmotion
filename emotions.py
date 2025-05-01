@@ -20,6 +20,9 @@ from models.cnn import ILABBlock
 
 from datetime import datetime
 import base64
+import requests
+import json
+import sys
 
 import socketio
 sio = socketio.Client()
@@ -29,12 +32,13 @@ def connect():
 @sio.event
 def disconnect():
     print("❌ Disconnected from Socket.IO server")
-# Kết nối tới server
-sio.connect("http://localhost:5000")
 
-USE_WEBCAM = True # If false, loads video file source
+# Global variables for driver and trip
+SELECTED_DRIVER = None
+CURRENT_TRIP = None
+BASE_URL = "http://localhost:5000"
 
-# parameters for loading data and images
+# Parameters for loading data and images
 emotion_model_path = './models/fer2013_mini_XCEPTION_final_acc_0.6620.keras'
 emotion_labels = get_labels('fer2013')
 
@@ -43,32 +47,102 @@ mp_face_detection = mp.solutions.face_detection
 mp_drawing = mp.solutions.drawing_utils
 face_detection = mp_face_detection.FaceDetection(min_detection_confidence=0.5)
 
-# hyper-parameters for bounding boxes shape
+# Hyper-parameters for bounding boxes shape
 frame_window = 10
 emotion_offsets = (20, 40)
 
-prediction_interval = 2.0
+prediction_interval = 5.0
 
-# loading models
-emotion_classifier = load_model(emotion_model_path, custom_objects={"MSEBlock": MSEBlock, "ILABBlock": ILABBlock})
+# Function to fetch drivers
+def get_drivers():
+    try:
+        response = requests.get(f"{BASE_URL}/api/drivers")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error fetching drivers: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"Error connecting to server: {e}")
+        return []
 
-# getting input model shapes for inference
-emotion_target_size = emotion_classifier.input_shape[1:3]
+# Function to display drivers and get selection
+def select_driver():
+    drivers = get_drivers()
+    
+    if not drivers:
+        print("No drivers found or couldn't connect to server.")
+        sys.exit(1)
+    
+    print("\n=== AVAILABLE DRIVERS ===")
+    for idx, driver in enumerate(drivers, 1):
+        print(f"{idx}. {driver['name']} (License: {driver['license_number']})")
+    
+    while True:
+        try:
+            choice = int(input("\nSelect driver number: "))
+            if 1 <= choice <= len(drivers):
+                return drivers[choice-1]
+            else:
+                print("Invalid selection. Please try again.")
+        except ValueError:
+            print("Please enter a number.")
 
-# starting video streaming
-start_time = datetime.now()
-timestamp_str = start_time.strftime('%Y%m%d_%H%M%S')
+# Function to create a new trip
+def create_trip(driver_id):
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/trips",
+            json={"driver_id": driver_id},
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error creating trip: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error connecting to server: {e}")
+        return None
 
-video_filename = f"./recordings/video_{timestamp_str}.avi"
-audio_filename = f"./recordings/audio_{timestamp_str}.wav"
-output_filename = f"./recordings/{timestamp_str}.mp4"
+# Function to update trip with video path
+def update_trip_video(trip_id, video_path):
+    try:
+        response = requests.put(
+            f"{BASE_URL}/api/trips/{trip_id}",
+            json={"video_path": video_path},
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error updating trip: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error connecting to server: {e}")
+        return None
 
-# === Biến điều khiển ===
-recording = True
-ffmpeg_process = None  # để terminate sau
+# Function to complete trip
+def complete_trip(trip_id):
+    try:
+        response = requests.put(
+            f"{BASE_URL}/api/trips/{trip_id}",
+            json={"status": "completed"},
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error completing trip: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error connecting to server: {e}")
+        return None
 
-# === Ghi âm bằng ffmpeg (Popen để dừng được) ===
-def record_audio():
+def record_audio(audio_filename):
     global ffmpeg_process
     cmd = [
         "ffmpeg",
@@ -79,13 +153,26 @@ def record_audio():
     ]
     ffmpeg_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def record_video():
+def record_video(video_filename, driver_info, trip_info):
     global recording
+    
+    # Connect to Socket.IO server
+    if not sio.connected:
+        try:
+            sio.connect(BASE_URL)
+        except Exception as e:
+            print(f"Error connecting to Socket.IO server: {e}")
+    
+    # Loading models
+    emotion_classifier = load_model(emotion_model_path, custom_objects={"MSEBlock": MSEBlock, "ILABBlock": ILABBlock})
+    
+    # Getting input model shapes for inference
+    emotion_target_size = emotion_classifier.input_shape[1:3]
     
     fps = 30
     width = 640
     height = 480
-    # starting video streaming
+    # Starting video streaming
     cv2.namedWindow('window_frame')
     cap = cv2.VideoCapture(0)
 
@@ -96,15 +183,24 @@ def record_video():
     out = cv2.VideoWriter(video_filename, fourcc, fps, (width, height))
 
     print(f"📹 Bắt đầu ghi video: {video_filename}")
+    print(f"👤 Driver: {driver_info['name']} (ID: {driver_info['id']})")
+    print(f"🚗 Trip ID: {trip_info['id']}")
 
     last_prediction_time = time.time()
     
     latest_emotions = []
+    frame_count = 0
 
     while recording:
         ret, bgr_image = cap.read()
         rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
         gray_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+        
+        # Add driver and trip info to the frame
+        cv2.putText(bgr_image, f"Driver: {driver_info['name']}", (10, 30), 
+                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(bgr_image, f"Trip ID: {trip_info['id']}", (10, 60), 
+                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
         # MediaPipe detects faces - image phải ở định dạng RGB
         results = face_detection.process(rgb_image)
@@ -120,6 +216,7 @@ def record_video():
                 faces.append({'box': (x, y, width, height)})
 
         current_time = time.time()
+        frame_count += 1
         # Cập nhật cảm xúc mỗi 1 giây
         if current_time - last_prediction_time >= prediction_interval:
             last_prediction_time = current_time
@@ -174,11 +271,14 @@ def record_video():
                 # Lưu lại để vẽ mỗi frame
                 latest_emotions.append(((x1, y1, width, height), emotion_text, color))
                 
+                # Thêm trip_id vào dữ liệu cảm xúc
                 sio.emit('new_emotion', {
                     'timestamp': str(datetime.now()),
                     'emotion': emotion_text,
                     'probability': float(emotion_probability),
-                    'color': color
+                    'color': color,
+                    'trip_id': trip_info['id'],  # Thêm trip_id
+                    'driver_id': driver_info['id']  # Thêm driver_id
                 })
 
         # Vẽ lại mọi khuôn mặt với cảm xúc gần nhất (nếu có)
@@ -197,14 +297,17 @@ def record_video():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         # Add this code to stream the processed frame
-        _, buffer = cv2.imencode('.jpg', bgr_image)
-        jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-        
-        # Emit the frame through Socket.IO
-        sio.emit('video_frame', {
-            'frame': jpg_as_text,
-            'timestamp': str(datetime.now())
-        })
+        if frame_count % 10 == 0:
+            _, buffer = cv2.imencode('.jpg', bgr_image)
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            
+            # Emit the frame through Socket.IO with trip_id
+            sio.emit('video_frame', {
+                'frame': jpg_as_text,
+                'timestamp': str(datetime.now()),
+                'trip_id': trip_info['id'],
+                'driver_id': driver_info['id']  # Thêm driver_id
+            })
         
         # Ghi frame đã xử lý vào file video
         cv2.imshow('window_frame', bgr_image)
@@ -218,45 +321,92 @@ def record_video():
     out.release()
     cv2.destroyAllWindows()
 
-# === Bắt đầu ghi âm và video song song ===
-video_thread = threading.Thread(target=record_video)
-audio_thread = threading.Thread(target=record_audio)
+def main():
+    global recording, ffmpeg_process
+    
+    print("🚗 DRIVER EMOTION TRACKING SYSTEM 🚗")
+    print("====================================")
+    
+    # 1. Select driver
+    driver = select_driver()
+    if not driver:
+        print("No driver selected. Exiting...")
+        return
+    
+    # 2. Create a new trip
+    trip = create_trip(driver['id'])
+    if not trip:
+        print("Failed to create trip. Exiting...")
+        return
+    
+    # 3. Set up file paths with driver and trip info
+    recording_dir = "./frontend/public/recordings"
+    os.makedirs(recording_dir, exist_ok=True)
+    
+    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_filename = f"driver{driver['id']}_trip{trip['id']}_{timestamp_str}"
+    
+    video_filename = os.path.join(recording_dir, f"{base_filename}_video.avi")
+    audio_filename = os.path.join(recording_dir, f"{base_filename}_audio.wav")
+    output_filename = os.path.join(recording_dir, f"{base_filename}.mp4")
+    
+    # 4. Start recording
+    recording = True
+    ffmpeg_process = None
+    
+    # Start video and audio recording
+    video_thread = threading.Thread(target=record_video, args=(video_filename, driver, trip))
+    audio_thread = threading.Thread(target=record_audio, args=(audio_filename,))
+    
+    video_thread.start()
+    time.sleep(5)  # để webcam ổn định trước
+    audio_thread.start()
+    
+    video_thread.join()
+    
+    # Stop audio recording
+    if ffmpeg_process and ffmpeg_process.poll() is None:
+        print("🛑 Dừng ghi âm...")
+        try:
+            ffmpeg_process.terminate()
+            ffmpeg_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print("⚠️ Quá thời gian chờ. Buộc dừng ffmpeg.")
+            ffmpeg_process.kill()
+    
+    audio_thread.join()
+    
+    # 5. Merge audio and video
+    print("🔗 Ghép audio + video...")
+    cmd_merge = [
+        "ffmpeg",
+        "-y",
+        "-i", video_filename,
+        "-i", audio_filename,
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-strict", "experimental",
+        "-shortest",
+        output_filename
+    ]
+    subprocess.run(cmd_merge)
+    
+    print(f"✅ Hoàn tất! File cuối: {output_filename}")
+    
+    # 6. Update trip with video path
+    update_trip_video(trip['id'], base_filename + ".mp4")
+    
+    # 7. Complete the trip
+    complete_trip(trip['id'])
+    print(f"✅ Chuyến đi đã hoàn thành và lưu lại!")
+    
+    # 8. Clean up temporary files
+    os.remove(video_filename)
+    os.remove(audio_filename)
+    
+    # 9. Disconnect from Socket.IO server
+    if sio.connected:
+        sio.disconnect()
 
-video_thread.start()
-time.sleep(5)  # để webcam ổn định trước
-audio_thread.start()
-
-video_thread.join()
-
-# === Dừng ffmpeg ghi âm nếu còn đang chạy ===
-if ffmpeg_process and ffmpeg_process.poll() is None:
-    print("🛑 Dừng ghi âm...")
-    try:
-        ffmpeg_process.terminate()  # Dùng terminate thay vì send_signal
-        ffmpeg_process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        print("⚠️ Quá thời gian chờ. Buộc dừng ffmpeg.")
-        ffmpeg_process.kill()
-
-audio_thread.join()
-
-# === Ghép audio + video ===
-print("🔗 Ghép audio + video...")
-cmd_merge = [
-    "ffmpeg",
-    "-y",
-    "-i", video_filename,
-    "-i", audio_filename,
-    "-c:v", "libx264",
-    "-c:a", "aac",
-    "-strict", "experimental",
-    "-shortest",
-    output_filename
-]
-subprocess.run(cmd_merge)
-
-print(f"✅ Hoàn tất! File cuối: {output_filename}")
-
-# === (Tuỳ chọn) Xoá file tạm ===
-os.remove(video_filename)
-os.remove(audio_filename)
+if __name__ == "__main__":
+    main()

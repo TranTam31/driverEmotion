@@ -1,27 +1,38 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const VideoPlayer = () => {
+const VideoPlayer = ({driverId}) => {
   const [hasStream, setHasStream] = useState(false);
-  const [lastFrameTime, setLastFrameTime] = useState(null);
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
   const timeoutRef = useRef(null);
+  
+  console.log("Driver ID of video:", driverId);
 
   useEffect(() => {
-    // Socket.IO connection for live streaming
-    const socket = io('http://localhost:5000');
-    socketRef.current = socket;
+    let socket = socketRef.current;
+    
+    if (!socket || socket.disconnected) {
+      socket = io('http://localhost:5000');
+      socketRef.current = socket;
+    }
 
+    // Xóa listeners cũ nếu có để tránh duplicate
+    socket.off('connect');
+    socket.off('video_frame');
+
+    // Thiết lập listeners mới
     socket.on('connect', () => {
-      console.log('✅ Connected to video stream');
+      console.log(`✅ Connected to video stream, joining room for driver ${driverId}`);
     });
 
     socket.on('video_frame', (data) => {
-      // Update last frame timestamp
-      setLastFrameTime(new Date());
+      if (data.driver_id !== driverId) {
+        setHasStream(false);
+        return;
+      };
+
       setHasStream(true);
-      
       // Clear any existing timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -44,9 +55,21 @@ const VideoPlayer = () => {
     });
 
     return () => {
-      socket.disconnect();
+      // Không đóng socket khi driverId thay đổi, chỉ xóa listeners
+      socket.off('connect');
+      socket.off('video_frame');
+      
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [driverId]); // Thêm driverId vào dependency array
+
+  // Thêm effect riêng để cleanup socket khi component unmount
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
   }, []);

@@ -1,54 +1,58 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const TimelineChart = ({ onTimeSelect }) => {
+const TimelineChart = ({driverId}) => {
   const [emotions, setEmotions] = useState([]);
+  const [live, setLive] = useState(true);
+  const timelineRef = useRef(null);
+  const socketRef = useRef(null);
 
-  // Fetch dữ liệu ban đầu
-  useEffect(() => {
-    axios.get('http://localhost:5000/api/emotions')
-      .then(response => setEmotions(response.data))
-      .catch(error => console.error(error));
-  }, []);
-
-  // Kết nối WebSocket
+  // Connect to WebSocket for realtime updates
   useEffect(() => {
     const socket = io('http://localhost:5000');
+    socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('✅ Connected to Socket.IO server');
+      console.log('✅ Connected to Socket.IO server for emotions');
     });
 
     socket.on('new_emotion', (data) => {
+      if (data.driver_id !== driverId) {
+        setLive(false); // Set live to false if not the same driver
+        return; // Ignore if not the same driver
+      }
+      
+      setLive(true); // Set live to true if the same driver
       console.log('🎉 New emotion received:', data);
-      setEmotions(prev => [...prev, data]); // Thêm emotion mới vào cuối
+      setEmotions(prev => [...prev, data]);
+
+      if (timelineRef.current) {
+        timelineRef.current.scrollLeft = timelineRef.current.scrollWidth;
+      }
     });
 
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [driverId]);
 
-  // Hàm xử lý khi click vào thanh timeline
-  const handleTimelineClick = (e, timestamp) => {
-    // Gọi hàm callback để thông báo cho component cha biết thời điểm được chọn
-    if (onTimeSelect) {
-      onTimeSelect(timestamp);
-    }
-    console.log('Đã chọn thời điểm:', timestamp);
-  };
+  useEffect(() => {
+      return () => {
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+        }
+      };
+    }, []);
 
-  // Tạo các phần tử emotion cho timeline
+  // Create emotion bars for timeline
   const renderEmotionBars = () => {
-    if (emotions.length === 0) {
+    if (live === false) {
       return <div className="no-data">Chưa có dữ liệu cảm xúc</div>;
     }
 
     return emotions.map((e, idx) => (
       <div 
         key={idx}
-        onClick={(event) => handleTimelineClick(event, e.timestamp)}
         title={`${e.timestamp} - ${e.emotion}`}
         style={{
           backgroundColor: `rgb(${e.color})`,
@@ -65,7 +69,7 @@ const TimelineChart = ({ onTimeSelect }) => {
     <div>
       {/* Tiêu đề cho timeline */}
       <div style={{ marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-        Timeline Video (click để xem lại theo thời gian)
+        Realtime Emotion Timeline
       </div>
       
       {/* Container cho timeline */}
@@ -75,17 +79,20 @@ const TimelineChart = ({ onTimeSelect }) => {
           backgroundColor: '#f0f0f0',
           padding: '5px',
           borderRadius: '4px',
-          overflowX: 'auto'
+          position: 'relative'
         }}
       >
         <div 
+          ref={timelineRef}
           className="timeline" 
           style={{
             display: 'flex',
             height: '30px',
             alignItems: 'center',
+            overflowX: 'auto',
             minWidth: '100%',
-            position: 'relative'
+            position: 'relative',
+            whiteSpace: 'nowrap'
           }}
         >
           {renderEmotionBars()}

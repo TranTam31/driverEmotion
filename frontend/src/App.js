@@ -2,23 +2,17 @@ import React from 'react';
 import TimelineChart from './TimelineChart';
 import VideoPlayer from './VideoPlayer';
 import './App.css';
+import Dashboard from './Dashboard';
 
 function App() {
   return (
     <div className="App">
-      <h1>Emotion Detection Dashboard</h1>
-      
-      <div className="dashboard">
-        <div className="video-section">
-          <VideoPlayer />
-        </div>
-      </div>
-      <div className="dashboard">
-        <div className="timeline-section">
-            <h2>Emotion Timeline</h2>
-            <TimelineChart />
-        </div>
-      </div>
+      <header className="App-header">
+        <h1>Driver Emotion Monitoring System</h1>
+      </header>
+      <main>
+        <Dashboard />
+      </main>
     </div>
   );
 }
