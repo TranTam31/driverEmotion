@@ -3,11 +3,15 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 import mysql.connector
 from datetime import datetime
-from flask_socketio import join_room
+import datetime
+import jwt
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, origins="http://localhost:3000")
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+app.config['SECRET_KEY'] = 'your_secret_key'
 
 # Hàm kết nối MySQL
 def get_db_connection():
@@ -191,6 +195,90 @@ def get_emotion_at_timestamp(trip_id, timestamp):
         return jsonify(result)
     else:
         return jsonify({"error": "No emotion data found at the specified timestamp"}), 404
+
+# New API
+@app.route('/api/flagged-emotions')
+def get_flagged_emotions():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+        SELECT 
+            d.id AS driver_id,
+            d.name AS driver_name,
+            t.id AS trip_id,
+            e.id,
+            e.emotion,
+            e.timestamp,
+            e.is_check
+        FROM drivers d
+        JOIN trips t ON d.id = t.driver_id
+        JOIN emotion_log e ON t.id = e.trip_id
+        WHERE e.emotion IN ('angry', 'sad', 'surprise') AND e.is_check = FALSE
+        ORDER BY e.timestamp DESC
+    """
+
+    cursor.execute(query)
+    results = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(results)
+
+#new api
+@app.route('/api/emotions/<int:emotion_id>/check', methods=['POST'])
+def mark_emotion_checked(emotion_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Cập nhật cột is_check thành TRUE
+    cursor.execute("UPDATE emotion_log SET is_check = TRUE WHERE id = %s", (emotion_id,))
+    conn.commit()
+    
+    affected_rows = cursor.rowcount
+    cursor.close()
+    conn.close()
+
+    if affected_rows == 0:
+        return jsonify({'success': False, 'message': 'Emotion not found'}), 404
+    return jsonify({'success': True, 'message': 'Emotion marked as checked'})
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    email = data['email']
+    password = generate_password_hash(data['password'])
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, password))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({'message': 'User registered successfully'}), 201
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data['email']
+    password = data['password']
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if user and check_password_hash(user['password'], password):
+        token = jwt.encode({
+            'email': user['email'],
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+        return jsonify({'token': token})
+    else:
+        return jsonify({'message': 'Invalid credentials'}), 401
 
 #BẮT SỰ KIỆN KẾT NỐI
 @socketio.on('connect')

@@ -36,6 +36,7 @@
       probability FLOAT,
       color VARCHAR(20),
       trip_id INT,
+      is_check BOOLEAN DEFAULT FALSE,
       FOREIGN KEY (trip_id) REFERENCES trips(id)
   );
   
