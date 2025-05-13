@@ -8,6 +8,7 @@
   ```
 - Chạy đoạn sau:
   ```sql
+  USE emotion_db
   -- Create drivers table
   CREATE TABLE IF NOT EXISTS drivers (
       id INT AUTO_INCREMENT PRIMARY KEY,
