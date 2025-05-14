@@ -8,7 +8,15 @@
   ```
 - Chạy đoạn sau:
   ```sql
-  USE emotion_db
+  USE emotion_db;
+
+  -- Create user table
+  CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL
+  );
+
   -- Create drivers table
   CREATE TABLE IF NOT EXISTS drivers (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,6 +58,8 @@
   ```
 
 ## 2. Chạy chương trình
+- Yêu cầu cài ffmpeg: https://www.gyan.dev/ffmpeg/builds/
+
 - Cài thư viện:
   ```
   pip install -r requirements.txt

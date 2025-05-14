@@ -45,7 +45,7 @@ def create_trip():
     # Tạo chuyến đi mới
     cursor.execute(
         "INSERT INTO trips (driver_id, start_time, status) VALUES (%s, %s, %s)",
-        (driver_id, datetime.now(), 'active')
+        (driver_id, datetime.datetime.now(), 'active')
     )
     conn.commit()
     
@@ -80,7 +80,7 @@ def update_trip(trip_id):
     
     if status == 'completed':
         update_fields.append("end_time = %s")
-        update_values.append(datetime.now())
+        update_values.append(datetime.datetime.now())
         update_fields.append("status = %s")
         update_values.append('completed')
     
@@ -279,6 +279,69 @@ def login():
         return jsonify({'token': token})
     else:
         return jsonify({'message': 'Invalid credentials'}), 401
+    
+@app.route('/api/emotion-date-range/<driver_id>', methods=['GET'])
+def get_emotion_date_range(driver_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        query = """
+            SELECT 
+                MIN(DATE(e.timestamp)) AS min_date,
+                MAX(DATE(e.timestamp)) AS max_date
+            FROM emotion_log e
+            JOIN trips t ON e.trip_id = t.id
+            WHERE t.driver_id = %s
+        """
+        cursor.execute(query, (driver_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result and result['min_date'] and result['max_date']:
+            return jsonify({
+                'min_date': result['min_date'].isoformat(),
+                'max_date': result['max_date'].isoformat()
+            })
+        else:
+            return jsonify({'message': 'No emotion data found for this driver'}), 404
+
+    except Exception as e:
+        print("Error in get_emotion_date_range:", e)
+        return jsonify({'message': 'Internal server error'}), 500
+
+@app.route('/api/emotion-stats-by-range', methods=['POST'])
+def emotion_stats_by_range():
+    data = request.get_json()
+    driver_id = data['driver_id']
+    start_date = data['start_date']
+    end_date = data['end_date']
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT e.emotion, COUNT(*) as count
+        FROM emotion_log e
+        JOIN trips t ON e.trip_id = t.id
+        WHERE t.driver_id = %s
+        AND DATE(e.timestamp) BETWEEN %s AND %s
+        GROUP BY e.emotion
+    """, (driver_id, start_date, end_date))
+
+    emotion_counts = cursor.fetchall()
+
+    total = sum(e['count'] for e in emotion_counts)
+    for e in emotion_counts:
+        e['percentage'] = (e['count'] / total) * 100 if total > 0 else 0
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(emotion_counts)
+
 
 #BẮT SỰ KIỆN KẾT NỐI
 @socketio.on('connect')

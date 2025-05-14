@@ -6,6 +6,7 @@ import TimelineChart from './TimelineChart';
 import DriversList from './DriversList';
 import TripPlayback from './TripPlayback';
 import { toZonedTime } from 'date-fns-tz';
+import AnalystView from './AnalystView';
 
 const Dashboard = () => {
   const [drivers, setDrivers] = useState([]);
@@ -115,6 +116,19 @@ const Dashboard = () => {
               >
                 Playback View
               </button>
+              <button
+                onClick={() => handleViewModeChange('analyst')}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: viewMode === 'analyst' ? '#f48a8a' : '#f1f1f1',
+                  color: viewMode === 'analyst' ? 'white' : 'black',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Analyst View
+              </button>
             </div>
 
             {/* Content based on selected view mode */}
@@ -127,7 +141,7 @@ const Dashboard = () => {
                   <TimelineChart driverId={selectedDriver.id}/>
                 </div>
               </div>
-            ) : (
+            ) : viewMode === 'playback' ? (
               /* Playback View */
               <TripPlayback 
                 selectedDriver={selectedDriver}
@@ -137,6 +151,8 @@ const Dashboard = () => {
                 onDateChange={handleDateChange}
                 onTripSelect={handleTripSelect}
               />
+            ) : (
+              <AnalystView driverId={selectedDriver.id} />
             )}
           </>
         ) : (
